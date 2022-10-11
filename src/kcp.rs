@@ -23,7 +23,7 @@ const IKCP_PROBE_INIT: u32 = 7000; // 7 secs to probe window size
 const IKCP_PROBE_LIMIT: u32 = 120000; // up to 120 secs to probe window
 const IKCP_FASTACK_LIMIT: u32 = 5; // max times to trigger fastack
 
-#[derive(Default,Clone,Copy)]
+#[derive(Default, Clone, Copy)]
 #[repr(C)]
 pub struct Segment {
     conv: u32,
@@ -41,8 +41,7 @@ pub struct Segment {
 
 impl Segment {}
 
-
-#[derive(Default,Clone,Copy)]
+#[derive(Default, Clone)]
 #[repr(C)]
 pub struct Kcb<W: Write> {
     conv: u32,
@@ -92,4 +91,104 @@ pub struct Kcb<W: Write> {
     output: W,
 }
 
-impl<W: Write> Kcb<W> {}
+impl<W: Write> Kcb<W> {
+    pub fn new() -> Self {
+        unimplemented!()
+    }
+
+    //set output callback, which will be invoked by kcp
+    pub fn setoutput(&mut self) {
+        unimplemented!()
+    }
+
+    // user/upper level recv: returns size, returns below zero for EAGAIN
+    pub fn recv(&mut self) {
+        unimplemented!()
+    }
+
+    // peek data size
+    fn peeksize(&self) {
+        unimplemented!()
+    }
+
+    // user/upper level send, returns below zero for error
+    pub fn send(&mut self) {
+        unimplemented!()
+    }
+
+    // update ack
+    fn update_ack(&mut self) {
+        unimplemented!()
+    }
+
+    //ack append
+    fn ack_push(&mut self) {
+        unimplemented!()
+    }
+
+    //parse data
+    fn parse_data(&mut self) {
+        unimplemented!()
+    }
+
+    // input data
+    fn input(&mut self) {
+        unimplemented!()
+    }
+
+    // ikcp_flush
+    fn flush(&mut self) {
+        unimplemented!()
+    }
+
+    //---------------------------------------------------------------------
+    // update state (call it repeatedly, every 10ms-100ms), or you can ask
+    // ikcp_check when to call it again (without ikcp_input/_send calling).
+    // 'current' - current timestamp in millisec.
+    //---------------------------------------------------------------------
+    fn update(&mut self) {
+        unimplemented!()
+    }
+
+    //---------------------------------------------------------------------
+    // Determine when should you invoke ikcp_update:
+    // returns when you should invoke ikcp_update in millisec, if there
+    // is no ikcp_input/_send calling. you can call ikcp_update in that
+    // time, instead of call update repeatly.
+    // Important to reduce unnacessary ikcp_update invoking. use it to
+    // schedule ikcp_update (eg. implementing an epoll-like mechanism,
+    // or optimize ikcp_update when handling massive kcp connections)
+    //---------------------------------------------------------------------
+    fn check(&mut self) {
+        unimplemented!()
+    }
+
+    fn set_mtu(&mut self) {
+        unimplemented!()
+    }
+
+    fn set_interval(&mut self) {
+        unimplemented!()
+    }
+
+    fn nodelay(&mut self) {
+        unimplemented!()
+    }
+
+    fn wndsize(&mut self) {
+        unimplemented!()
+    }
+
+    fn waitsnd(&mut self) {
+        unimplemented!()
+    }
+}
+
+impl<W> Drop for Kcb<W>
+where
+    W: Write,
+{
+    fn drop(&mut self) {
+        unimplemented!()
+    }
+}
