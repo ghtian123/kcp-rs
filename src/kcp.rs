@@ -1,5 +1,6 @@
 use bytes::{Bytes, BytesMut};
 use std::collections::VecDeque;
+use std::io::Error;
 use std::io::Write;
 
 const IKCP_RTO_NDL: u32 = 30; // no delay min rto
@@ -71,7 +72,7 @@ impl Segment {}
 
 #[derive(Default, Clone)]
 #[repr(C)]
-pub struct Kcb<W: Write> {
+struct Kcb<W: Write> {
     //标识这个会话ID
     conv: u32,
 
@@ -181,7 +182,7 @@ pub struct Kcb<W: Write> {
     ackblock: u32,
 
     // 存储消息字节流；
-    buffer: Vec<u8>,
+    buffer: BytesMut,
 
     //触发快速重传的重复ACK个数；
     fastresend: u32,
@@ -197,52 +198,90 @@ pub struct Kcb<W: Write> {
     output: W,
 }
 
-impl<W: Write+Default> Kcb<W> {
-    pub fn ickp_create(w: W,conv:u32) -> Self {
-        let mut kcp = Kcb::default();
-        kcp.output = w;
-        kcp.conv = conv;
-        kcp.snd_wnd = IKCP_WND_SND;
-        kcp.rcv_wnd = IKCP_WND_RCV;
-        kcp.rmt_wnd = IKCP_WND_RCV;
-        kcp.mtu = IKCP_MTU_DEF;
-        kcp.mss = kcp.mtu - IKCP_OVERHEAD;
-
-        kcp.snd_queue = VecDeque::new();
-        kcp.rcv_queue = VecDeque::new();
-        kcp.snd_buf = VecDeque::new();
-        kcp.rcv_buf = VecDeque::new();
-
-        kcp.acklist = Vec::new();
-
-        kcp.rx_rto = IKCP_RTO_DEF as i32;
-        kcp.rx_minrto = IKCP_RTO_MIN as i32;
-
-        kcp.interval = IKCP_INTERVAL;
-        kcp.ts_flush = IKCP_INTERVAL;
-
-        kcp.ssthresh = IKCP_THRESH_INIT;
-        kcp.fastlimit = IKCP_FASTACK_LIMIT;
-        kcp.dead_link = IKCP_DEADLINK;
-
-        kcp
-
+impl<W: Write> Kcb<W> {
+    pub fn ickp_create(w: W, conv: u32) -> Self {
+        Self {
+            conv: conv,
+            mtu: IKCP_MTU_DEF,
+            mss: IKCP_MTU_DEF - IKCP_OVERHEAD,
+            state: 0,
+            snd_una: 0,
+            snd_nxt: 0,
+            rcv_nxt: 0,
+            ts_recent: 0,
+            ts_lastack: 0,
+            ssthresh: IKCP_THRESH_INIT,
+            rx_rttval: 0,
+            rx_srtt: 0,
+            rx_rto: IKCP_RTO_DEF as i32,
+            rx_minrto: IKCP_RTO_MIN as i32,
+            snd_wnd: IKCP_WND_SND,
+            rcv_wnd: IKCP_WND_RCV,
+            rmt_wnd: IKCP_WND_RCV,
+            cwnd: 0,
+            probe: 0,
+            current: 0,
+            interval: IKCP_INTERVAL,
+            ts_flush: IKCP_INTERVAL,
+            xmit: 0,
+            nrcv_buf: 0,
+            nsnd_buf: 0,
+            nrcv_que: 0,
+            nsnd_que: 0,
+            nodelay: false,
+            updated: false,
+            ts_probe: 0,
+            probe_wait: 0,
+            dead_link: IKCP_DEADLINK,
+            incr: 0,
+            snd_queue: VecDeque::new(),
+            rcv_queue: VecDeque::new(),
+            snd_buf: VecDeque::new(),
+            rcv_buf: VecDeque::new(),
+            acklist: Vec::new(),
+            ackcount: 0,
+            ackblock: 0,
+            buffer: BytesMut::new(),
+            fastresend: 0,
+            nocwnd: false,
+            stream: false,
+            fastlimit: IKCP_FASTACK_LIMIT,
+            output: w,
+        }
     }
-
-
 
     // user/upper level recv: returns size, returns below zero for EAGAIN
     pub fn ikcp_recv(&mut self) {
         unimplemented!()
     }
 
-    // peek data size
-    fn ikcp_peeksize(&self) {
+    // user/upper level send, returns below zero for error
+    pub fn ikcp_send(&mut self, buffer: &[u8]) -> Result<isize, Error> {
+        assert!(self.mss > 0);
+
         unimplemented!()
     }
 
-    // user/upper level send, returns below zero for error
-    pub fn ikcp_send(&mut self) {
+    // input data
+    pub fn ickp_input(&mut self) {
+        unimplemented!()
+    }
+
+    //---------------------------------------------------------------------
+    // update state (call it repeatedly, every 10ms-100ms), or you can ask
+    // ikcp_check when to call it again (without ikcp_input/_send calling).
+    // 'current' - current timestamp in millisec.
+    //---------------------------------------------------------------------
+    pub fn ikcp_update(&mut self) {
+        unimplemented!()
+    }
+
+    fn ickp_output(&mut self) {
+        unimplemented!()
+    }
+
+    // peek data size
+    pub fn ikcp_peeksize(&self) {
         unimplemented!()
     }
 
@@ -252,31 +291,17 @@ impl<W: Write+Default> Kcb<W> {
     }
 
     //ack append
-    fn ack_push(&mut self) {
+    fn ikcp_ack_push(&mut self) {
         unimplemented!()
     }
 
     //parse data
-    fn parse_data(&mut self) {
-        unimplemented!()
-    }
-
-    // input data
-    fn input(&mut self) {
+    fn ikcp_parse_data(&mut self) {
         unimplemented!()
     }
 
     // ikcp_flush
-    fn flush(&mut self) {
-        unimplemented!()
-    }
-
-    //---------------------------------------------------------------------
-    // update state (call it repeatedly, every 10ms-100ms), or you can ask
-    // ikcp_check when to call it again (without ikcp_input/_send calling).
-    // 'current' - current timestamp in millisec.
-    //---------------------------------------------------------------------
-    fn update(&mut self) {
+    fn ikcp_flush(&mut self) {
         unimplemented!()
     }
 
@@ -289,28 +314,69 @@ impl<W: Write+Default> Kcb<W> {
     // schedule ikcp_update (eg. implementing an epoll-like mechanism,
     // or optimize ikcp_update when handling massive kcp connections)
     //---------------------------------------------------------------------
-    fn check(&mut self) {
+    fn ikcp_check(&mut self) {
         unimplemented!()
     }
 
-    fn set_mtu(&mut self) {
+    // change MTU size, default is 1400
+    pub fn ikcp_setmtu(&mut self) {
         unimplemented!()
     }
 
-    fn set_interval(&mut self) {
-        unimplemented!()
+    pub fn ikcp_interval(&mut self,internal :u32) {
+
+        self.interval = if internal > 5000 {
+            5000
+        } else if internal < 10 {
+            10
+        } else {
+            internal
+        }
     }
 
-    fn nodelay(&mut self) {
-        unimplemented!()
+    // fastest: ikcp_nodelay(kcp, 1, 20, 2, 1)
+    // nodelay: 0:disable(default), 1:enable
+    // interval: internal update timer interval in millisec, default is 100ms
+    // resend: 0:disable fast resend(default), 1:enable fast resend
+    // nc: 0:normal congestion control(default), 1:disable congestion control
+    pub fn ikcp_nodelay(&mut self, nodelay: bool, internal: u32, resend: u32, nc: bool) {
+        self.nodelay = nodelay;
+        self.fastresend = resend;
+        self.nocwnd = nc;
+
+        self.rx_minrto = if self.nodelay {
+            IKCP_RTO_NDL as i32
+        } else {
+            IKCP_RTO_MIN as i32
+        };
+
+        self.interval = if internal > 5000 {
+            5000
+        } else if internal < 10 {
+            10
+        } else {
+            internal
+        }
     }
 
-    fn wndsize(&mut self) {
-        unimplemented!()
+    //set maximum window size: sndwnd=32, rcvwnd=32 by default
+    pub fn ikcp_wndsize(&mut self, sndwnd: u32, rcvwnd: u32) {
+        if sndwnd > 0 {
+            self.snd_wnd = sndwnd;
+        }
+        if rcvwnd > 0 {
+            // must >= max fragment size
+            self.rcv_wnd = if rcvwnd > IKCP_WND_RCV {
+                rcvwnd
+            } else {
+                IKCP_WND_RCV
+            };
+        }
     }
 
-    fn waitsnd(&mut self) {
-        unimplemented!()
+    // get how many packet is waiting to be sent
+    pub fn ikcp_waitsnd(&self) -> u32 {
+        self.nsnd_buf + self.nsnd_que
     }
 }
 
@@ -322,5 +388,3 @@ where
         unimplemented!()
     }
 }
-
-
