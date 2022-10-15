@@ -1,4 +1,4 @@
-use std::net::UdpSocket;
+use std::cmp::{max,min};
 
 
 
@@ -8,9 +8,8 @@ use std::net::UdpSocket;
 
 fn main(){
 
-    let client = UdpSocket::send(&self, buf)
-
-    server.
+   let r = max(1, 2);
+   println!("{}",r)
 
 
 }

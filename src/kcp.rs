@@ -1,7 +1,7 @@
-use bytes::{Bytes, BytesMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
+use std::cmp::{max, min};
 use std::collections::VecDeque;
-use std::io::Error;
-use std::io::Write;
+use std::io::{self, Write};
 
 const IKCP_RTO_NDL: u32 = 30; // no delay min rto
 const IKCP_RTO_MIN: u32 = 100; // normal min rto
@@ -30,45 +30,62 @@ const IKCP_FASTACK_LIMIT: u32 = 5; // max times to trigger fastack
 #[repr(C)]
 pub struct Segment {
     //conv唯一标识一个会话
-    conv: u32,
+    pub conv: u32,
 
     //用来区分分片的作用 IKCP_CMD_PUSH,IKCP_CMD_ACK,IKCP_CMD_WASK,IKCP_CMD_WINS
-    cmd: u8,
+    pub cmd: u8,
 
     //frag标识segment分片ID（在message中的索引，由大到小，0表示最后一个分片）。
-    frg: u8,
+    pub frg: u8,
 
     // 剩余接收窗口大小（接收窗口大小-接收队列大小），发送方的发送窗口不能超过接收方给出的数值。
-    wnd: u16,
+    pub wnd: u16,
 
     // message发送时刻的时间戳
-    ts: u32,
+    pub ts: u32,
 
     //message分片segment的序号，按1累次递增。
-    sn: u32,
+    pub sn: u32,
 
     //待接收消息序号(接收滑动窗口左端)。对于未丢包的网络来说，una是下一个可接收的序号，如收到sn=10的包，una为11。
-    una: u32,
+    pub una: u32,
 
     // 数据长度。
-    len: u32,
+    pub len: u32,
 
     //下次超时重传的时间戳。
-    resendts: u32,
+    pub resendts: u32,
 
     // 该分片的超时重传等待时间，其计算方法同TCP。
-    rto: u32,
+    pub rto: u32,
 
     // 收到ack时计算的该分片被跳过的累计次数，此字段用于快速重传，自定义需要几次确认开始快速重传。
-    fastack: u32,
+    pub fastack: u32,
 
     //发送分片的次数，每发送一次加一。发送的次数对RTO的计算有影响，但是比TCP来说，影响会小一些，计算思想类似
-    xmit: u32,
+    pub xmit: u32,
 
-    data: Vec<u8>,
+    pub data: Vec<u8>,
 }
 
-impl Segment {}
+
+
+impl Segment {
+    pub fn encode(&self, buf: &mut BytesMut) {
+        buf.put_u32_le(self.conv);
+        buf.put_u8(self.cmd);
+        buf.put_u8(self.frg);
+        buf.put_u16_le(self.wnd);
+        buf.put_u32_le(self.ts);
+        buf.put_u32_le(self.sn);
+        buf.put_u32_le(self.una);
+        buf.put_u32_le(self.len);
+    }
+
+    pub fn decode(&mut self) {
+        todo!()
+    }
+}
 
 #[derive(Default, Clone)]
 #[repr(C)]
@@ -101,16 +118,16 @@ struct Kcb<W: Write> {
     ssthresh: u32,
 
     //RTT的变化量，代表连接的抖动情况
-    rx_rttval: i32,
+    rx_rttval: u32,
 
     //smoothed round trip time，平滑后的RTT
-    rx_srtt: i32,
+    rx_srtt: u32,
 
     //由ACK接收延迟计算出来的重传超时时间
-    rx_rto: i32,
+    rx_rto: u32,
 
     //最小重传超时时间
-    rx_minrto: i32,
+    rx_minrto: u32,
 
     //发送窗口大小
     snd_wnd: u32,
@@ -137,17 +154,6 @@ struct Kcb<W: Write> {
 
     //发送segment的次数，当segment的xmit增加时，xmit增加（第一次或重传除外）
     xmit: u32,
-
-    //接收消息的缓存数量
-    nrcv_buf: u32,
-    //发送缓存中消息数量
-    nsnd_buf: u32,
-
-    //接收队列中消息数量
-    nrcv_que: u32,
-
-    // 发送消息的队列数量
-    nsnd_que: u32,
 
     // 是否启动无延迟模式。无延迟模式rtomin将设置为0，拥塞控制不启动；
     nodelay: bool,
@@ -213,8 +219,8 @@ impl<W: Write> Kcb<W> {
             ssthresh: IKCP_THRESH_INIT,
             rx_rttval: 0,
             rx_srtt: 0,
-            rx_rto: IKCP_RTO_DEF as i32,
-            rx_minrto: IKCP_RTO_MIN as i32,
+            rx_rto: IKCP_RTO_DEF,
+            rx_minrto: IKCP_RTO_MIN,
             snd_wnd: IKCP_WND_SND,
             rcv_wnd: IKCP_WND_RCV,
             rmt_wnd: IKCP_WND_RCV,
@@ -224,10 +230,6 @@ impl<W: Write> Kcb<W> {
             interval: IKCP_INTERVAL,
             ts_flush: IKCP_INTERVAL,
             xmit: 0,
-            nrcv_buf: 0,
-            nsnd_buf: 0,
-            nrcv_que: 0,
-            nsnd_que: 0,
             nodelay: false,
             updated: false,
             ts_probe: 0,
@@ -256,14 +258,15 @@ impl<W: Write> Kcb<W> {
     }
 
     // user/upper level send, returns below zero for error
-    pub fn ikcp_send(&mut self, buffer: &[u8]) -> Result<isize, Error> {
+    pub fn ikcp_send(&mut self, buffer: &[u8]) -> isize {
         assert!(self.mss > 0);
 
         unimplemented!()
     }
 
     // input data
-    pub fn ickp_input(&mut self) {
+    pub fn ickp_input(&mut self, buf :&[u8]) {
+
         unimplemented!()
     }
 
@@ -276,23 +279,61 @@ impl<W: Write> Kcb<W> {
         unimplemented!()
     }
 
-    fn ickp_output(&mut self) {
-        unimplemented!()
+    fn ickp_output(&mut self, data: &[u8]) -> io::Result<()> {
+        self.output.write_all(data)
     }
 
-    // peek data size
-    pub fn ikcp_peeksize(&self) {
-        unimplemented!()
+    pub fn ikcp_peeksize(&self) -> Result<u32, i32> {
+        let seg = match self.rcv_queue.front() {
+            Some(x) => x,
+            None => return Err(-1),
+        };
+
+        if seg.frg == 0 {
+            return Ok(seg.len);
+        }
+
+        if self.rcv_queue.len() < (seg.frg + 1) as usize {
+            return Err(-1);
+        }
+
+        let mut length = 0;
+        for seg in (&self.rcv_queue).into_iter() {
+            length += seg.len;
+            if seg.frg == 0 {
+                break;
+            }
+        }
+
+        Ok(length)
     }
 
     // update ack
-    fn ikcp_update_ack(&mut self) {
-        unimplemented!()
+    fn ikcp_update_ack(&mut self, rtt: u32) {
+        if self.rx_srtt == 0 {
+            self.rx_srtt = rtt;
+            self.rx_rttval = rtt / 2;
+        } else {
+            let mut delta = if rtt > self.rx_srtt {
+                rtt - self.rx_srtt
+            } else {
+                self.rx_srtt - rtt
+            };
+
+            self.rx_rttval = (3 * self.rx_rttval + delta) / 4;
+            self.rx_srtt = (7 * self.rx_srtt + rtt) / 8;
+            if self.rx_srtt < 1 {
+                self.rx_srtt = 1;
+            }
+        }
+
+        let rto = self.rx_srtt + max(self.interval, 4 * self.rx_rttval);
+        self.rx_rto = ibound(self.rx_minrto, rto, IKCP_RTO_MAX);
     }
 
     //ack append
-    fn ikcp_ack_push(&mut self) {
-        unimplemented!()
+    fn ikcp_ack_push(&mut self,sn:u32,ts:u32) {
+        self.acklist.push((sn,ts))        
     }
 
     //parse data
@@ -301,7 +342,7 @@ impl<W: Write> Kcb<W> {
     }
 
     // ikcp_flush
-    fn ikcp_flush(&mut self) {
+    pub fn ikcp_flush(&mut self) {
         unimplemented!()
     }
 
@@ -314,17 +355,32 @@ impl<W: Write> Kcb<W> {
     // schedule ikcp_update (eg. implementing an epoll-like mechanism,
     // or optimize ikcp_update when handling massive kcp connections)
     //---------------------------------------------------------------------
-    fn ikcp_check(&mut self) {
+    pub fn ikcp_check(&mut self, current: u32) -> i32 {
+        let ts_flush = self.ts_flush;
+        let tm_flush = 0x7fffffff;
+        let tm_packet = 0x7fffffff;
+        let minimal = 0;
+
+        // if !self.updated {
+        //     return current;
+        // }
+
         unimplemented!()
     }
 
     // change MTU size, default is 1400
-    pub fn ikcp_setmtu(&mut self) {
-        unimplemented!()
+    pub fn ikcp_setmtu(&mut self, mtu: u32) -> Result<(), i32> {
+        if mtu < 50 || mtu < IKCP_OVERHEAD {
+            return Err(-1);
+        }
+
+        self.mtu = mtu;
+        self.mss = mtu - IKCP_OVERHEAD;
+
+        return Ok(());
     }
 
-    pub fn ikcp_interval(&mut self,internal :u32) {
-
+    pub fn ikcp_interval(&mut self, internal: u32) {
         self.interval = if internal > 5000 {
             5000
         } else if internal < 10 {
@@ -345,9 +401,9 @@ impl<W: Write> Kcb<W> {
         self.nocwnd = nc;
 
         self.rx_minrto = if self.nodelay {
-            IKCP_RTO_NDL as i32
+            IKCP_RTO_NDL
         } else {
-            IKCP_RTO_MIN as i32
+            IKCP_RTO_MIN
         };
 
         self.interval = if internal > 5000 {
@@ -375,11 +431,12 @@ impl<W: Write> Kcb<W> {
     }
 
     // get how many packet is waiting to be sent
-    pub fn ikcp_waitsnd(&self) -> u32 {
-        self.nsnd_buf + self.nsnd_que
+    pub fn ikcp_waitsnd(&self) -> usize {
+        self.snd_buf.len() + self.snd_queue.len()
     }
 }
 
+// release kcp control object
 impl<W> Drop for Kcb<W>
 where
     W: Write,
@@ -387,4 +444,14 @@ where
     fn drop(&mut self) {
         unimplemented!()
     }
+}
+
+#[inline]
+fn ibound(lower: u32, middle: u32, upper: u32) -> u32 {
+    return min(max(lower, middle), upper);
+}
+
+#[inline]
+fn timediff(later: u32, earlier: u32) -> u32 {
+    later - earlier
 }
