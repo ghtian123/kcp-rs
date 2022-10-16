@@ -16,15 +16,12 @@ const IKCP_ASK_TELL: u32 = 2; // need to send IKCP_CMD_WINS
 const IKCP_WND_SND: u32 = 32;
 const IKCP_WND_RCV: u32 = 128; // must >= max fragment size
 const IKCP_MTU_DEF: u32 = 1400;
-// const IKCP_ACK_FAST: u32 = 3;
 const IKCP_INTERVAL: u32 = 100;
 const IKCP_OVERHEAD: u32 = 24;
-const IKCP_DEADLINK: u32 = 20;
 const IKCP_THRESH_INIT: u32 = 2;
 const IKCP_THRESH_MIN: u32 = 2;
 const IKCP_PROBE_INIT: u32 = 7000; // 7 secs to probe window size
 const IKCP_PROBE_LIMIT: u32 = 120000; // up to 120 secs to probe window
-// const IKCP_FASTACK_LIMIT: u32 = 5; // max times to trigger fastack
 
 #[derive(Default, Clone)]
 #[repr(C)]
@@ -93,9 +90,7 @@ pub struct Kcp<W: Write> {
     // 最大分片大小，不大于mtu；
     mss: u32,
 
-    //连接状态（0xFFFFFFFF表示断开连接）
-    state: u32,
-
+    
     //第一个未确认的包
     snd_una: u32,
 
@@ -159,9 +154,6 @@ pub struct Kcp<W: Write> {
     //探查窗口需要等待的时间
     probe_wait: u32,
 
-    //最大重传次数，被认为连接中断
-    dead_link: u32,
-
     //可发送的最大数据量
     incr: u32,
 
@@ -195,7 +187,6 @@ impl<W: Write> Kcp<W> {
             conv: conv,
             mtu: IKCP_MTU_DEF,
             mss: IKCP_MTU_DEF - IKCP_OVERHEAD,
-            state: 0,
             snd_una: 0,
             snd_nxt: 0,
             rcv_nxt: 0,
@@ -217,7 +208,6 @@ impl<W: Write> Kcp<W> {
             updated: false,
             ts_probe: 0,
             probe_wait: 0,
-            dead_link: IKCP_DEADLINK,
             incr: 0,
             snd_queue: VecDeque::new(),
             rcv_queue: VecDeque::new(),
@@ -417,7 +407,6 @@ impl<W: Write> Kcp<W> {
                         seg.sn = sn;
                         seg.una = una;
                         seg.data.resize(len, 0);
-                        println!("debug-->{:?}",buf);
                         if buf.read_exact(&mut seg.data).is_err() {
                             return Err(-2);
                         }
@@ -615,7 +604,7 @@ impl<W: Write> Kcp<W> {
             self.rx_srtt = rtt;
             self.rx_rttval = rtt / 2;
         } else {
-            let mut delta = if rtt > self.rx_srtt {
+            let delta = if rtt > self.rx_srtt {
                 rtt - self.rx_srtt
             } else {
                 self.rx_srtt - rtt
@@ -650,7 +639,7 @@ impl<W: Write> Kcp<W> {
             if (self.buffer.capacity() - self.buffer.len()) + IKCP_OVERHEAD as usize
                 > self.mtu as usize
             {
-                self.output.write_all(&self.buffer);
+                self.output.write_all(&self.buffer).unwrap();
                 self.buffer.clear();
             }
             seg.sn = ack.0;
@@ -688,7 +677,7 @@ impl<W: Write> Kcp<W> {
             if (self.buffer.capacity() - self.buffer.len()) + IKCP_OVERHEAD as usize
                 > self.mtu as usize
             {
-                self.output.write_all(&self.buffer);
+                self.output.write_all(&self.buffer).unwrap();
                 self.buffer.clear();
             }
             seg.encode(&mut self.buffer);
@@ -700,7 +689,7 @@ impl<W: Write> Kcp<W> {
             if (self.buffer.capacity() - self.buffer.len()) + IKCP_OVERHEAD as usize
                 > self.mtu as usize
             {
-                self.output.write_all(&self.buffer);
+                self.output.write_all(&self.buffer).unwrap();
                 self.buffer.clear();
             }
             seg.encode(&mut self.buffer);
@@ -783,21 +772,21 @@ impl<W: Write> Kcp<W> {
                     + segment.data.len() as usize)
                     > self.mtu as usize
                 {
-                    self.output.write_all(&self.buffer);
+                    self.output.write_all(&self.buffer).unwrap();
                     self.buffer.clear();
                 }
 
                 segment.encode(&mut self.buffer);
 
-                if segment.xmit >= self.dead_link {
-                    self.state = u32::MAX;
-                }
+                // if segment.xmit >= self.dead_link {
+                //     self.state = u32::MAX;
+                // }
             }
         }
 
         // flush remain segments
         if self.buffer.capacity() - self.buffer.len() > 0 {
-            self.output.write_all(&self.buffer);
+            self.output.write_all(&self.buffer).unwrap();
             self.buffer.clear();
         }
 
@@ -805,23 +794,23 @@ impl<W: Write> Kcp<W> {
         if change {
             let inflight = self.snd_nxt - self.snd_una;
             self.ssthresh = inflight / 2;
-            if (self.ssthresh < IKCP_THRESH_MIN) {
+            if self.ssthresh < IKCP_THRESH_MIN {
                 self.ssthresh = IKCP_THRESH_MIN;
             }
             self.cwnd = self.ssthresh + resent;
             self.incr = self.cwnd * self.mss;
         }
 
-        if (lost) {
+        if lost {
             self.ssthresh = cwnd / 2;
-            if (self.ssthresh < IKCP_THRESH_MIN) {
+            if self.ssthresh < IKCP_THRESH_MIN {
                 self.ssthresh = IKCP_THRESH_MIN;
             }
             self.cwnd = 1;
             self.incr = self.mss;
         }
 
-        if (self.cwnd < 1) {
+        if self.cwnd < 1 {
             self.cwnd = 1;
             self.incr = self.mss;
         }
@@ -836,17 +825,9 @@ impl<W: Write> Kcp<W> {
     // schedule ikcp_update (eg. implementing an epoll-like mechanism,
     // or optimize ikcp_update when handling massive kcp connections)
     //---------------------------------------------------------------------
-    pub fn ikcp_check(&mut self, current: u32) -> i32 {
-        let ts_flush = self.ts_flush;
-        let tm_flush = 0x7fffffff;
-        let tm_packet = 0x7fffffff;
-        let minimal = 0;
-
-        // if !self.updated {
-        //     return current;
-        // }
-
-        unimplemented!()
+    pub fn ikcp_check(&mut self, _current: u32) -> i32 {
+       
+        todo!()
     }
 
     // change MTU size, default is 1400

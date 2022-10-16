@@ -23,7 +23,7 @@ impl Write for KcpOutput {
 
 fn main() {
     let socket = UdpSocket::bind("127.0.0.1:8080").expect("failed to bind host socket");
-    socket.set_nonblocking(true);
+    socket.set_nonblocking(true).unwrap();
 
     let ss = Rc::new(socket);
 
@@ -33,7 +33,7 @@ fn main() {
     };
 
     let mut kcp = Kcp::ickp_create(kcpo, 1);
-    // kcp.ikcp_nodelay(true, 1, 10, true);
+    kcp.ikcp_nodelay(true, 1, 10, true);
 
     let mut ss_buf = [0; 100];
     let mut read_buf = [0; 100];
@@ -48,7 +48,7 @@ fn main() {
 
         loop {
             match ss.recv_from(&mut ss_buf) {
-                Ok((a, b)) => {
+                Ok((a, _b)) => {
                     if a > 0 {
                         println!(
                             "recv_from-->{:?}",
@@ -71,7 +71,7 @@ fn main() {
                     }
                     kcp.ikcp_send(b"hello world").unwrap();
                 }
-                Err(x) => {
+                Err(_x) => {
                     break;
                 }
             }
