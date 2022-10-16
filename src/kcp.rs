@@ -180,7 +180,7 @@ pub struct Kcp<W: Write> {
     ackblock: u32,
 
     // 存储消息字节流；
-    pub buffer: BytesMut,
+    buffer: BytesMut,
 
     //触发快速重传的重复ACK个数；
     fastresend: u32,
