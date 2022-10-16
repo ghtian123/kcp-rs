@@ -13,7 +13,10 @@ struct KcpOutput {
 
 impl Write for KcpOutput {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        println!("write");
+        println!(
+            "write-->{:?}",
+            String::from_utf8(buf[24..].to_vec()).unwrap()
+        );
         self.udp.send_to(buf, &self.peer)
     }
 
@@ -24,7 +27,7 @@ impl Write for KcpOutput {
 
 fn main() {
     let socket = UdpSocket::bind("127.0.0.1:7070").expect("failed to bind host socket");
-    
+
     socket.set_nonblocking(true);
 
     let ss = Rc::new(socket);
@@ -37,8 +40,8 @@ fn main() {
     let mut kcp = Kcp::ickp_create(kcpo, 1);
     // kcp.ikcp_nodelay(true, 1, 10, true);
 
-    let mut ss_buf = [0;100];
-    let mut read_buf= [0;100];
+    let mut ss_buf = [0; 100];
+    let mut read_buf = [0; 100];
 
     loop {
         let current = SystemTime::now()
@@ -48,21 +51,23 @@ fn main() {
 
         kcp.ikcp_update(current);
 
-        for i in 0..5{
+        for i in 0..5 {
             kcp.ikcp_send(b"hello world").unwrap();
         }
-     
 
         loop {
             match ss.recv_from(&mut ss_buf) {
-                Ok((a,b)) => {
-                    if a>0{
-                        println!("recv-->{:?}",&ss_buf[..a]);
+                Ok((a, b)) => {
+                    if a > 0 {
+                        println!(
+                            "recv_from-->{:?}",
+                            String::from_utf8(ss_buf[24..].to_vec()).unwrap()
+                        );
                         kcp.ikcp_input(&ss_buf[..a]).unwrap();
                     }
                 }
                 Err(x) => {
-                    println!("{:?}",x);
+                    println!("{:?}", x);
                     break;
                 }
             }
@@ -71,10 +76,9 @@ fn main() {
         loop {
             match kcp.ikcp_recv(&mut read_buf) {
                 Ok(x) => {
-                    if x >0{
+                    if x > 0 {
                         println!("recive-->{:?}", read_buf);
                     }
-                   
                 }
                 Err(x) => {
                     break;

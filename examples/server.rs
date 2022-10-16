@@ -50,7 +50,10 @@ fn main() {
             match ss.recv_from(&mut ss_buf) {
                 Ok((a, b)) => {
                     if a > 0 {
-                        println!("recv-->{:?}",&ss_buf[..a]);
+                        println!(
+                            "recv_from-->{:?}",
+                            String::from_utf8(ss_buf[24..].to_vec()).unwrap()
+                        );
                         kcp.ikcp_input(&ss_buf[..a]).unwrap();
                     }
                 }
