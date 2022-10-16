@@ -1,2 +1,11 @@
 # kcp-rs
-A KCP implementation in Rust
+学习 rust 和kcp
+
+# example
+```
+cargo run --example server
+```
+
+```
+cargo run --example client
+```

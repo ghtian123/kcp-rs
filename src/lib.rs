@@ -1,5 +1,5 @@
-mod error;
 mod kcp;
+pub use kcp::Kcp;
 #[cfg(test)]
 mod tests {
     #[test]
