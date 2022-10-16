@@ -105,9 +105,6 @@ pub struct Kcp<W: Write> {
     //待接收消息序号。为了保证包的顺序，接收方会维护一个接收窗口，接收窗口有一个起始序号rcv_nxt（待接收消息序号）以及尾序号 rcv_nxt + rcv_wnd（接收窗口大小）
     rcv_nxt: u32,
 
-    ts_recent: u32,
-
-    ts_lastack: u32,
 
     // 拥塞窗口阈值，以包为单位（TCP以字节为单位）
     ssthresh: u32,
@@ -202,8 +199,6 @@ impl<W: Write> Kcp<W> {
             snd_una: 0,
             snd_nxt: 0,
             rcv_nxt: 0,
-            ts_recent: 0,
-            ts_lastack: 0,
             ssthresh: IKCP_THRESH_INIT,
             rx_rttval: 0,
             rx_srtt: 0,
