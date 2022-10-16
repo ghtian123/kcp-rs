@@ -24,7 +24,7 @@ const IKCP_THRESH_INIT: u32 = 2;
 const IKCP_THRESH_MIN: u32 = 2;
 const IKCP_PROBE_INIT: u32 = 7000; // 7 secs to probe window size
 const IKCP_PROBE_LIMIT: u32 = 120000; // up to 120 secs to probe window
-const IKCP_FASTACK_LIMIT: u32 = 5; // max times to trigger fastack
+// const IKCP_FASTACK_LIMIT: u32 = 5; // max times to trigger fastack
 
 #[derive(Default, Clone)]
 #[repr(C)]
@@ -176,9 +176,6 @@ pub struct Kcp<W: Write> {
     //待发送的ack列表(sn,ts)
     acklist: Vec<(u32, u32)>,
 
-    //2的倍数，标识acklist最大可容纳的ack数量；
-    ackblock: u32,
-
     // 存储消息字节流；
     buffer: BytesMut,
 
@@ -191,7 +188,6 @@ pub struct Kcp<W: Write> {
     //是否采用流传输模式；
     stream: bool,
 
-    fastlimit: u32,
 
     output: W,
 }
@@ -233,12 +229,10 @@ impl<W: Write> Kcp<W> {
             snd_buf: VecDeque::new(),
             rcv_buf: VecDeque::new(),
             acklist: Vec::new(),
-            ackblock: 0,
             buffer: BytesMut::with_capacity((IKCP_MTU_DEF as usize + IKCP_OVERHEAD as usize) * 3),
             fastresend: 0,
             nocwnd: false,
             stream: false,
-            fastlimit: IKCP_FASTACK_LIMIT,
             output: w,
         }
     }
