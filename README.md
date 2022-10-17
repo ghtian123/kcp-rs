@@ -1,5 +1,5 @@
 # kcp-rs
-学习 rust 和kcp
+学习 rust 和 kcp
 
 # example
 ```
@@ -11,4 +11,3 @@ cargo run --example client
 ```
 
 # todo
-debug
