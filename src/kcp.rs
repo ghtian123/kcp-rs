@@ -75,6 +75,7 @@ impl Segment {
         buf.put_u32_le(self.sn);
         buf.put_u32_le(self.una);
         buf.put_u32_le(self.len);
+        buf.put_slice(&self.data)
     }
 }
 
@@ -90,7 +91,6 @@ pub struct Kcp<W: Write> {
     // 最大分片大小，不大于mtu；
     mss: u32,
 
-    
     //第一个未确认的包
     snd_una: u32,
 
@@ -99,7 +99,6 @@ pub struct Kcp<W: Write> {
 
     //待接收消息序号。为了保证包的顺序，接收方会维护一个接收窗口，接收窗口有一个起始序号rcv_nxt（待接收消息序号）以及尾序号 rcv_nxt + rcv_wnd（接收窗口大小）
     rcv_nxt: u32,
-
 
     // 拥塞窗口阈值，以包为单位（TCP以字节为单位）
     ssthresh: u32,
@@ -177,7 +176,6 @@ pub struct Kcp<W: Write> {
     //是否采用流传输模式；
     stream: bool,
 
-
     output: W,
 }
 
@@ -254,7 +252,7 @@ impl<W: Write> Kcp<W> {
             let new_rcv_queue = self.rcv_queue.split_off(index);
             self.rcv_queue = new_rcv_queue;
         }
-        assert!(buf.position() as usize == peeksize as usize);
+        // assert!(buf.position() as usize == peeksize as usize);
 
         // move available data from rcv_buf -> rcv_queue
         index = 0;
@@ -326,10 +324,12 @@ impl<W: Write> Kcp<W> {
         for i in 0..count {
             let size = min(self.mss as usize, buf.remaining());
             let mut seg = Segment::default();
+            seg.len = size as u32;
             seg.data.resize(size, 0);
             if buf.read_exact(&mut seg.data).is_err() {
                 return Err(-1);
             };
+
             seg.frg = if !self.stream { count - i - 1 } else { 0 };
             self.snd_queue.push_back(seg);
         }
@@ -349,8 +349,10 @@ impl<W: Write> Kcp<W> {
         let old_una = self.snd_una;
         let mut flag = false;
         let mut maxack: u32 = 0;
+
         while buf.remaining() >= IKCP_OVERHEAD as usize {
             let conv = buf.get_u32_le();
+
             if conv != self.conv {
                 return Err(-1);
             }
@@ -644,6 +646,7 @@ impl<W: Write> Kcp<W> {
             }
             seg.sn = ack.0;
             seg.ts = ack.1;
+
             seg.encode(&mut self.buffer);
         }
         self.acklist.clear();
@@ -717,6 +720,7 @@ impl<W: Write> Kcp<W> {
                 newseg.rto = self.rx_rto;
                 newseg.fastack = 0;
                 newseg.xmit = 0;
+
                 self.snd_buf.push_back(newseg);
             } else {
                 break;
@@ -777,10 +781,6 @@ impl<W: Write> Kcp<W> {
                 }
 
                 segment.encode(&mut self.buffer);
-
-                // if segment.xmit >= self.dead_link {
-                //     self.state = u32::MAX;
-                // }
             }
         }
 
@@ -826,7 +826,6 @@ impl<W: Write> Kcp<W> {
     // or optimize ikcp_update when handling massive kcp connections)
     //---------------------------------------------------------------------
     pub fn ikcp_check(&mut self, _current: u32) -> i32 {
-       
         todo!()
     }
 

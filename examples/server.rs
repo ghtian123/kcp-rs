@@ -36,7 +36,7 @@ fn main() {
     kcp.ikcp_nodelay(true, 1, 10, true);
 
     let mut ss_buf = [0; 100];
-    let mut read_buf = [0; 100];
+    
 
     loop {
         let current = SystemTime::now()
@@ -64,14 +64,17 @@ fn main() {
         }
 
         loop {
+            let mut read_buf = [0; 100];
+            println!("zz->{}",read_buf.len());
             match kcp.ikcp_recv(&mut read_buf) {
                 Ok(x) => {
                     if x > 0 {
-                        println!("recive-->{:?}", read_buf);
+                        println!("recive-->{:?}", String::from_utf8(read_buf.to_vec()).unwrap());
                     }
                     kcp.ikcp_send(b"hello world").unwrap();
                 }
                 Err(_x) => {
+                    println!("err {:?}",_x);
                     break;
                 }
             }
