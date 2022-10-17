@@ -23,7 +23,7 @@ const IKCP_THRESH_MIN: u32 = 2;
 const IKCP_PROBE_INIT: u32 = 7000; // 7 secs to probe window size
 const IKCP_PROBE_LIMIT: u32 = 120000; // up to 120 secs to probe window
 
-#[derive(Default, Clone)]
+#[derive(Default)]
 #[repr(C)]
 struct Segment {
     //conv唯一标识一个会话
@@ -79,7 +79,7 @@ impl Segment {
     }
 }
 
-#[derive(Default, Clone)]
+
 #[repr(C)]
 pub struct Kcp<W: Write> {
     //标识这个会话ID
