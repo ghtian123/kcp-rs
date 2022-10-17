@@ -12,7 +12,6 @@ struct KcpOutput {
 
 impl Write for KcpOutput {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        println!("write");
         self.udp.send_to(buf, &self.peer)
     }
 
@@ -33,27 +32,21 @@ fn main() {
     };
 
     let mut kcp = Kcp::ickp_create(kcpo, 1);
-    kcp.ikcp_nodelay(true, 1, 10, true);
-
-    let mut ss_buf = [0; 100];
-    
+    // kcp.ikcp_nodelay(true, 1, 10, true);
 
     loop {
         let current = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
-            .as_secs() as u32;
+            .as_millis() as u32;
 
         kcp.ikcp_update(current);
 
         loop {
+            let mut ss_buf = [0; 100];
             match ss.recv_from(&mut ss_buf) {
                 Ok((a, _b)) => {
                     if a > 0 {
-                        println!(
-                            "recv_from-->{:?}",
-                            String::from_utf8(ss_buf[24..].to_vec()).unwrap()
-                        );
                         kcp.ikcp_input(&ss_buf[..a]).unwrap();
                     }
                 }
@@ -65,16 +58,17 @@ fn main() {
 
         loop {
             let mut read_buf = [0; 100];
-            println!("zz->{}",read_buf.len());
             match kcp.ikcp_recv(&mut read_buf) {
                 Ok(x) => {
                     if x > 0 {
-                        println!("recive-->{:?}", String::from_utf8(read_buf.to_vec()).unwrap());
+                        println!(
+                            "recive-->{:?}",
+                            String::from_utf8(read_buf[..x].to_vec()).unwrap()
+                        );
                     }
                     kcp.ikcp_send(b"hello world").unwrap();
                 }
                 Err(_x) => {
-                    println!("err {:?}",_x);
                     break;
                 }
             }

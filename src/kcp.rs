@@ -252,7 +252,8 @@ impl<W: Write> Kcp<W> {
             let new_rcv_queue = self.rcv_queue.split_off(index);
             self.rcv_queue = new_rcv_queue;
         }
-        // assert!(buf.position() as usize == peeksize as usize);
+
+        assert!(buf.position() as usize == peeksize as usize);
 
         // move available data from rcv_buf -> rcv_queue
         index = 0;
@@ -324,6 +325,7 @@ impl<W: Write> Kcp<W> {
         for i in 0..count {
             let size = min(self.mss as usize, buf.remaining());
             let mut seg = Segment::default();
+            //fix bug
             seg.len = size as u32;
             seg.data.resize(size, 0);
             if buf.read_exact(&mut seg.data).is_err() {
@@ -408,6 +410,8 @@ impl<W: Write> Kcp<W> {
                         seg.ts = ts;
                         seg.sn = sn;
                         seg.una = una;
+                        //fix bug
+                        seg.len = len as u32;
                         seg.data.resize(len, 0);
                         if buf.read_exact(&mut seg.data).is_err() {
                             return Err(-2);

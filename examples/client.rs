@@ -12,10 +12,6 @@ struct KcpOutput {
 
 impl Write for KcpOutput {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        println!(
-            "write-->{:?}",
-            String::from_utf8(buf[24..].to_vec()).unwrap()
-        );
         self.udp.send_to(buf, &self.peer)
     }
 
@@ -37,26 +33,19 @@ fn main() {
     };
 
     let mut kcp = Kcp::ickp_create(kcpo, 1);
-    kcp.ikcp_nodelay(true, 1, 10, true);
-
-    let mut ss_buf = [0; 100];
-    
-
-    
+    // kcp.ikcp_nodelay(true, 1, 10, true);
 
     loop {
         let current = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_millis() as u32;
-
         kcp.ikcp_update(current);
 
-        for _ in 0..5 {
-            kcp.ikcp_send(b"hello world").unwrap();
-        }
+        kcp.ikcp_send(b"hello world").unwrap();
 
         loop {
+            let mut ss_buf = [0; 100];
             match ss.recv_from(&mut ss_buf) {
                 Ok((a, _b)) => {
                     if a > 0 {
@@ -74,7 +63,10 @@ fn main() {
             match kcp.ikcp_recv(&mut read_buf) {
                 Ok(x) => {
                     if x > 0 {
-                        println!("recive-->{:?}", String::from_utf8(read_buf.to_vec()).unwrap());
+                        println!(
+                            "recive-->{:?}",
+                            String::from_utf8(read_buf[..x].to_vec()).unwrap()
+                        );
                     }
                 }
                 Err(_x) => {
