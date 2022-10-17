@@ -735,7 +735,7 @@ impl<W: Write> Kcp<W> {
         let resent = if self.fastresend > 0 {
             self.fastresend
         } else {
-            0xffffffff
+            u32::MAX
         };
 
         let rtomin = if !self.nodelay { self.rx_rto >> 3 } else { 0 };
