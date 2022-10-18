@@ -156,9 +156,12 @@ pub struct Kcp<W: Write> {
     //可发送的最大数据量
     incr: u32,
 
+    // snd_queue --> snd_buf
     snd_queue: VecDeque<Segment>,
     rcv_queue: VecDeque<Segment>,
     snd_buf: VecDeque<Segment>,
+
+    //rcv_buf --> rcv_queue
     rcv_buf: VecDeque<Segment>,
 
     //待发送的ack列表(sn,ts)
@@ -268,13 +271,15 @@ impl<W: Write> Kcp<W> {
             }
         }
 
+        //移动 rcv_buf 数据到 rcv_queue
         if index > 0 {
             let new_rcv_buf = self.rcv_buf.split_off(index);
             self.rcv_queue.append(&mut self.rcv_buf);
             self.rcv_buf = new_rcv_buf;
         }
 
-        // fast recover
+        //最后进行窗口恢复。此时如果 recover 标记为1，表明在此次接收之前，可用接收窗口为0，
+        //如果经过本次接收之后，可用窗口大于0，将主动发送 IKCP_ASK_TELL 数据包来通知对方已可以接收数据：
         if self.rcv_queue.len() < self.rcv_wnd as usize && recover {
             // ready to send back KCP_CMD_WINS in `flush`
             // tell remote my window size
@@ -291,7 +296,7 @@ impl<W: Write> Kcp<W> {
         }
         let mut buf = Cursor::new(buf);
 
-        // append to previous segment in streaming mode (if possible)
+        // 1. 如果当前的 KCP 开启流模式，取出 `snd_queue` 中的最后一个报文将其填充到 mss 的长度，并设置其 frg 为 0.
         if self.stream {
             if let Some(seg) = self.snd_queue.back_mut() {
                 let l = seg.data.len();
@@ -309,6 +314,7 @@ impl<W: Write> Kcp<W> {
             };
         }
 
+        // 2. 计算剩下的数据需要分成几段
         let count = if buf.remaining() <= self.mss as usize {
             1
         } else {
@@ -321,7 +327,8 @@ impl<W: Write> Kcp<W> {
         assert!(count > 0);
         let count = count as u8;
 
-        // fragment
+
+        // 3. 为剩下的数据创建 KCP segment
         for i in 0..count {
             let size = min(self.mss as usize, buf.remaining());
             let mut seg = Segment::default();
@@ -332,6 +339,7 @@ impl<W: Write> Kcp<W> {
                 return Err(-1);
             };
 
+            // 流模式情况下分片编号不用填写
             seg.frg = if !self.stream { count - i - 1 } else { 0 };
             self.snd_queue.push_back(seg);
         }
@@ -350,6 +358,7 @@ impl<W: Write> Kcp<W> {
         }
         let old_una = self.snd_una;
         let mut flag = false;
+        //记录当前收到的最大的 ACK 编号，在快重传的过程计算已发送的数据包被跳过的次数；
         let mut maxack: u32 = 0;
 
         while buf.remaining() >= IKCP_OVERHEAD as usize {
@@ -398,8 +407,12 @@ impl<W: Write> Kcp<W> {
                         maxack = sn;
                     }
                 }
+           
+           
             } else if cmd == IKCP_CMD_PUSH {
+                //1. 对于来自于对方的标准数据包，首先需要检测该报文的编号 sn 是否在窗口范围内；
                 if sn < self.rcv_nxt + self.rcv_wnd {
+                    //2. 调用 ikcp_ack_push 将对该报文的确认 ACK 报文放入 ACK 列表中，ACK 列表的组织方式在前文中已经介绍；
                     self.acklist.push((sn, ts));
                     if sn >= self.rcv_nxt {
                         let mut seg = Segment::default();
@@ -416,23 +429,26 @@ impl<W: Write> Kcp<W> {
                         if buf.read_exact(&mut seg.data).is_err() {
                             return Err(-2);
                         }
+                        //3. 最后调用 ikcp_parse_data 将该报文插入到 rcv_buf 链表中；
                         self.ikcp_parse_data(seg);
                     }
                 }
             } else if cmd == IKCP_CMD_WASK {
-                // ready to send back KCP_CMD_WINS in `flush`
-                // tell remote my window size
+                //对于接收到的 IKCP_CMD_WASK 报文，直接标记下次将发送窗口通知报文
                 self.probe |= IKCP_ASK_TELL;
             } else if cmd == IKCP_CMD_WINS {
-                // do nothing
+                //而对于报文 IKCP_CMD_WINS 无需做任何特殊操作;
             } else {
                 return Err(-1);
             }
         }
         if flag {
+            // 根据记录的最大的 ACK 编号 maxack 来更新 snd_buf 中的报文的 fastack，
+            // 这个过程在介绍 ikcp_flush 中提到过，对于 fastack 大于设置的 resend 参数时，将立马进行快重传；
             self.ikcp_parse_fastack(maxack);
         }
 
+        //最后，根据接收到报文的 una 和 KCP 控制块的 una 参数进行流控
         if self.snd_una > old_una {
             if self.cwnd < self.rmt_wnd {
                 let mss = self.mss as u32;
@@ -457,6 +473,8 @@ impl<W: Write> Kcp<W> {
         Ok(n - buf.remaining())
     }
 
+    //当接收到 una 信息后，表明 sn 小于 una 的数据包都已经被对方接收到，
+    //因此可以直接从 snd_buf 中删除。同时调用 ikcp_shrink_buf 来更新 KCP 控制块的 snd_una 数值。
     fn ikcp_parse_una(&mut self, una: u32) {
         let mut index: usize = 0;
         for seg in &self.snd_buf {
@@ -485,6 +503,9 @@ impl<W: Write> Kcp<W> {
         }
     }
 
+    //之后调用函数 ikcp_parse_ack 来根据 ACK 的编号确认对方收到了哪个数据包；
+    //注意KCP 中同时使用了 UNA 以及 ACK 编号的报文确认手段。
+    //UNA 表示此前所有的数据都已经被接收到，而 ACK 表示指定编号的数据包被接收到；
     fn ikcp_parse_ack(&mut self, sn: u32) {
         if sn < self.snd_una || sn >= self.snd_nxt {
             return;
@@ -604,7 +625,7 @@ impl<W: Write> Kcp<W> {
         Ok(length)
     }
 
-    // update ack
+    // 调用 ikcp_update_ack 来根据 ACK 时间戳更新本地的 rtt，这类似于 TCP 协议；
     fn ikcp_update_ack(&mut self, rtt: u32) {
         if self.rx_srtt == 0 {
             self.rx_srtt = rtt;
@@ -640,7 +661,7 @@ impl<W: Write> Kcp<W> {
         seg.wnd = self.ikcp_wnd_unused();
         seg.una = self.rcv_nxt;
 
-        // flush acknowledges
+        // 发送确认ACK 包
         for ack in &self.acklist {
             if (self.buffer.capacity() - self.buffer.len()) + IKCP_OVERHEAD as usize
                 > self.mtu as usize
@@ -704,7 +725,7 @@ impl<W: Write> Kcp<W> {
 
         self.probe = 0;
 
-        // calculate window size
+        // 设置nocwnd cwnd 只会由发送窗口和对端接收端口决定
         let mut cwnd = min(self.snd_wnd, self.rmt_wnd);
         if !self.nocwnd {
             cwnd = min(self.cwnd, cwnd);
@@ -731,13 +752,14 @@ impl<W: Write> Kcp<W> {
             }
         }
 
-        // calculate resent
+        // 是否设置了快重传次数
         let resent = if self.fastresend > 0 {
             self.fastresend
         } else {
             u32::MAX
         };
 
+        // 是否开启了 nodelay 
         let rtomin = if !self.nodelay { self.rx_rto >> 3 } else { 0 };
 
         let mut lost = false;
@@ -746,11 +768,14 @@ impl<W: Write> Kcp<W> {
         for segment in &mut self.snd_buf {
             let mut needsend = false;
 
+             // 1. 如果该报文是第一次传输，那么直接发送
             if segment.xmit == 0 {
                 needsend = true;
                 segment.xmit += 1;
                 segment.rto = self.rx_rto;
                 segment.resendts = self.current + segment.rto + rtomin;
+
+            // 2. 如果已经到了该报文的重传时间，那么发送该报文
             } else if diff(self.current, segment.resendts) >= 0 {
                 needsend = true;
                 segment.xmit += 1;
@@ -761,12 +786,18 @@ impl<W: Write> Kcp<W> {
                     segment.rto += self.rx_rto / 2;
                 }
                 segment.resendts = self.current + segment.rto;
+
+                // 标识重传
                 lost = true;
+
+             // 3. 如果该报文被跳过的次数超过了设置的快重传次数，发送该报文
             } else if segment.fastack >= resent {
                 needsend = true;
                 segment.xmit += 1;
                 segment.fastack = 0;
                 segment.resendts = self.current + segment.rto;
+
+                // 标识快重传发生
                 change = true;
             }
 
@@ -789,12 +820,13 @@ impl<W: Write> Kcp<W> {
         }
 
         // flush remain segments
-        if self.buffer.capacity() - self.buffer.len() > 0 {
+        if self.buffer.len() > 0 {
             self.output.write_all(&self.buffer).unwrap();
             self.buffer.clear();
         }
 
-        // update ssthresh
+        // 快重传和丢包时的窗口更新算法不一致，这一点类似于 TCP 协议的拥塞控制和快恢复算法；
+        // 根据change 更新窗口大小
         if change {
             let inflight = self.snd_nxt - self.snd_una;
             self.ssthresh = inflight / 2;
@@ -805,6 +837,7 @@ impl<W: Write> Kcp<W> {
             self.incr = self.cwnd * self.mss;
         }
 
+        // 根据设置的 lost 更新窗口大小
         if lost {
             self.ssthresh = cwnd / 2;
             if self.ssthresh < IKCP_THRESH_MIN {
